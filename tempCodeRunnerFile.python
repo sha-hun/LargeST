@@ -1,0 +1,19 @@
+import torch
+
+# 图移位算子 (Graph Shift Operator)
+gso = torch.tensor([[0.5, 0.3], [0.7, 0.2]])
+
+# 输入特征张量 (Input Feature Tensor)
+x = torch.tensor([[[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]]])
+
+# 使用 torch.einsum 计算
+result_einsum = torch.einsum('hi,btij->bthj', gso, x)
+
+# 使用矩阵乘法计算
+result_matmul = torch.matmul(gso, x)
+
+print("Result using torch.einsum:")
+print(result_einsum)
+
+print("\nResult using torch.matmul:")
+print(result_matmul)

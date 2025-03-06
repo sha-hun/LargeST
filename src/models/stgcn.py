@@ -9,6 +9,13 @@ class STGCN(BaseModel):
     '''
     Reference code: https://github.com/hazdzz/STGCN
     '''
+#blocks = [
+#     [64, 16, 64],
+# ]
+# gso（Graph Shift Operator）**：图移位算子
+# Kt（Temporal Kernel Size）：时间卷积核大小
+# Ks（Spatial Kernel Size）：空间卷积核大小
+# Ko（Output Kernel Size）：输出时间维度
     def __init__(self, gso, blocks, Kt, Ks, dropout, **args):
         super(STGCN, self).__init__(**args)
         modules = []
@@ -19,25 +26,25 @@ class STGCN(BaseModel):
         self.Ko = Ko
         if self.Ko > 1:
             self.output = OutputBlock(Ko, blocks[-3][-1], blocks[-2], blocks[-1][0], self.node_num, dropout)
-        elif self.Ko == 0:
+        elif self.Ko == 0:  #输出时间维度是0就两个全连接层 （论文说一个）
             self.fc1 = nn.Linear(in_features=blocks[-3][-1], out_features=blocks[-2][0])
             self.fc2 = nn.Linear(in_features=blocks[-2][0], out_features=blocks[-1][0])
             self.relu = nn.ReLU()
 
 
-    def forward(self, x, label=None):  # (b, t, n, f)
-        x = x.permute(0, 3, 1, 2)
+    def forward(self, x, label=None):   # (b, t, n, f) (batch_size, time_steps, num_nodes, features)
+        x = x.permute(0, 3, 1, 2)       # (batch_size, features, time_steps, num_nodes)
         x = self.st_blocks(x)
         if self.Ko > 1:
             x = self.output(x)
         elif self.Ko == 0:
-            x = self.fc1(x.permute(0, 2, 3, 1))
+            x = self.fc1(x.permute(0, 2, 3, 1)) # (batch_size, time_steps, num_nodes, features)
             x = self.relu(x)
-            x = self.fc2(x).permute(0, 3, 1, 2)
-        return x.transpose(2, 3)
+            x = self.fc2(x).permute(0, 3, 1, 2) # (batch_size, features, time_steps, num_nodes)
+        return x.transpose(2, 3)                # (batch_size, features, num_nodes, time_steps)
 
 
-class STConvBlock(nn.Module):
+class STConvBlock(nn.Module):   
     def __init__(self, Kt, Ks, node_num, last_block_channel, channels, gso, dropout):
         super(STConvBlock, self).__init__()
         self.tmp_conv1 = TemporalConvLayer(Kt, last_block_channel, channels[0], node_num)
@@ -49,9 +56,9 @@ class STConvBlock(nn.Module):
 
 
     def forward(self, x):
-        x = self.tmp_conv1(x)
-        x = self.graph_conv(x)
-        x = self.relu(x)
+        x = self.tmp_conv1(x)   # (batch_size, features, time_steps, num_nodes)
+        x = self.graph_conv(x)  # (batch_size, features, time_steps, num_nodes)
+        x = self.relu(x)        # (batch_size, features, time_steps, num_nodes)
         x = self.tmp_conv2(x)
         x = self.tc2_ln(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         x = self.dropout(x)
@@ -84,19 +91,19 @@ class TemporalConvLayer(nn.Module):
         self.c_in = c_in
         self.c_out = c_out
         self.node_num = node_num
-        self.align = Align(c_in, c_out)
+        self.align = Align(c_in, c_out) # 在feature维度上对齐 （用0填充），[1,1]卷积核
         self.sigmoid = nn.Sigmoid()
         self.causal_conv = CausalConv2d(in_channels=c_in, out_channels=2 * c_out, \
                             kernel_size=(Kt, 1), enable_padding=False, dilation=1)
 
 
-    def forward(self, x):   
-        x_in = self.align(x)[:, :, self.Kt - 1:, :]
+    def forward(self, x):    # (batch_size, features, time_steps, num_nodes)
+        x_in = self.align(x)[:, :, self.Kt - 1:, :] # 前面 Kt-1 的数据不用
         x_causal_conv = self.causal_conv(x)
 
         x_p = x_causal_conv[:, : self.c_out, :, :]
         x_q = x_causal_conv[:, -self.c_out:, :, :]
-        x = torch.mul((x_p + x_in), self.sigmoid(x_q))
+        x = torch.mul((x_p + x_in), self.sigmoid(x_q))  # 残差门控
         return x
 
 
@@ -111,12 +118,12 @@ class GraphConvLayer(nn.Module):
         self.cheb_graph_conv = ChebGraphConv(c_out, c_out, Ks, gso)
 
 
-    def forward(self, x):
+    def forward(self, x):   # (batch_size, features, time_steps, num_nodes)
         x_gc_in = self.align(x)
         x_gc = self.cheb_graph_conv(x_gc_in)
-        x_gc = x_gc.permute(0, 3, 1, 2)
+        x_gc = x_gc.permute(0, 3, 1, 2) # btnf -> bftn
         x_gc_out = torch.add(x_gc, x_gc_in)
-        return x_gc_out
+        return x_gc_out   # (batch_size, features, time_steps, num_nodes)
 
 
 class ChebGraphConv(nn.Module):
@@ -124,7 +131,7 @@ class ChebGraphConv(nn.Module):
         super(ChebGraphConv, self).__init__()
         self.c_in = c_in
         self.c_out = c_out
-        self.Ks = Ks
+        self.Ks = Ks    # 切比雪夫多项式的阶数
         self.gso = gso
         self.weight = nn.Parameter(torch.FloatTensor(Ks, c_in, c_out))
         self.bias = nn.Parameter(torch.FloatTensor(c_out))
@@ -133,14 +140,16 @@ class ChebGraphConv(nn.Module):
 
     def reset_parameters(self):
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        #前向传播的时候, 每一层的卷积计算结果的方差为1
+        #反向传播的时候, 每一层的继续往前传的梯度方差为1
         fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
         bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
         init.uniform_(self.bias, -bound, bound)
 
 
-    def forward(self, x):
-        x = torch.permute(x, (0, 2, 3, 1))
-
+    def forward(self, x):   # (batch_size, features, time_steps, num_nodes)
+        x = torch.permute(x, (0, 2, 3, 1))  # (batch_size, time_steps, num_nodes, features)
+    
         if self.Ks - 1 < 0:
             raise ValueError(f'ERROR: the graph convolution kernel size Ks has to be a positive integer, but received {self.Ks}.')  
         elif self.Ks - 1 == 0:
@@ -148,7 +157,7 @@ class ChebGraphConv(nn.Module):
             x_list = [x_0]
         elif self.Ks - 1 == 1:
             x_0 = x
-            x_1 = torch.einsum('hi,btij->bthj', self.gso, x)
+            x_1 = torch.einsum('hi,btij->bthj', self.gso, x)    #??为什么不直接矩阵乘法
             x_list = [x_0, x_1]
         elif self.Ks - 1 >= 2:
             x_0 = x
@@ -161,7 +170,7 @@ class ChebGraphConv(nn.Module):
 
         cheb_graph_conv = torch.einsum('btkhi,kij->bthj', x, self.weight)
         cheb_graph_conv = torch.add(cheb_graph_conv, self.bias)
-        return cheb_graph_conv
+        return cheb_graph_conv    # (batch_size, time_steps, num_nodes, features)
 
 
 class Align(nn.Module):
@@ -185,6 +194,7 @@ class Align(nn.Module):
 
 class CausalConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, enable_padding=False, dilation=1, groups=1, bias=True):
+        #参数转化成元组的形式
         kernel_size = nn.modules.utils._pair(kernel_size)
         stride = nn.modules.utils._pair(stride)
         dilation = nn.modules.utils._pair(dilation)
@@ -198,6 +208,8 @@ class CausalConv2d(nn.Conv2d):
 
     def forward(self, input):
         if self.__padding != 0:
-            input = F.pad(input, (self.left_padding[1], 0, self.left_padding[0], 0))
+            input = F.pad(input, (self.left_padding[1], 0, self.left_padding[0], 0))#左右上下填充长度
         result = super(CausalConv2d, self).forward(input)
         return result
+
+print(STGCN)
