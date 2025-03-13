@@ -7,9 +7,9 @@ import multiprocessing as mp
 
 class DataLoader(object):
     def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False):
-        if pad_last_sample:
+        if pad_last_sample: # 对最后一个批次进行填充
             num_padding = (bs - (len(idx) % bs)) % bs
-            idx_padding = np.repeat(idx[-1:], num_padding, axis=0)
+            idx_padding = np.repeat(idx[-1:], num_padding, axis=0)  # axis = 0 沿着第0维重复 num_padding 次
             idx = np.concatenate([idx, idx_padding], axis=0)
         
         self.data = data

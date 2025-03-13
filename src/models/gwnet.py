@@ -7,10 +7,13 @@ class GWNET(BaseModel):
     '''
     Reference code: https://github.com/nnzhan/Graph-WaveNet
     '''
+    #supports = [torch.tensor(i).to(device) for i in adj_mx]
+    #adj_mx = load_adj_from_numpy(adj_path)
+    #adp_adj = 1, residual_channels = 32, dilation_channels = 32, skip_channels = 256, end_channels = 512
     def __init__(self, supports, adp_adj, dropout, residual_channels, dilation_channels, \
                  skip_channels, end_channels, kernel_size=2, blocks=4, layers=2, **args):
         super(GWNET, self).__init__(**args)
-        self.supports = supports
+        self.supports = supports # supports = [torch.tensor(i).to(device) for i in adj_mx]
         self.supports_len = len(supports)
         self.adp_adj = adp_adj
         if adp_adj:
@@ -33,13 +36,13 @@ class GWNET(BaseModel):
                                     out_channels=residual_channels,
                                     kernel_size=(1,1))
 
-        receptive_field = 1
+        receptive_field = 1 # 感受野
         for b in range(blocks):
-            additional_scope = kernel_size - 1
+            additional_scope = kernel_size - 1  # 拓展域
             new_dilation = 1
             for i in range(layers):
-                self.filter_convs.append(nn.Conv2d(in_channels=residual_channels,
-                                                   out_channels=dilation_channels,
+                self.filter_convs.append(nn.Conv2d(in_channels=residual_channels,#32
+                                                   out_channels=dilation_channels,#32
                                                    kernel_size=(1,kernel_size),dilation=new_dilation))
 
                 self.gate_convs.append(nn.Conv2d(in_channels=residual_channels,
@@ -68,7 +71,7 @@ class GWNET(BaseModel):
 
 
     def forward(self, input, label=None):  # (b, t, n, f)
-        input = input.transpose(1,3)
+        input = input.transpose(1,3)        # (batch, feature, node, time)
         in_len = input.size(3)
         if in_len < self.receptive_field:
             x = nn.functional.pad(input,(self.receptive_field - in_len, 0, 0, 0))
@@ -146,7 +149,7 @@ class GCN(nn.Module):
         for a in support:
             x1 = self.nconv(x, a)
             out.append(x1)
-            for k in range(2, self.order + 1):
+            for k in range(2, self.order + 1):  # order即论文中的K
                 x2 = self.nconv(x1, a)
                 out.append(x2)
                 x1 = x2
