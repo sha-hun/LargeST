@@ -64,7 +64,7 @@ def generate_train_val_test(args):
     idx_test = idx[num_train + num_val:]
 
     # normalize
-    x_train = data[:idx_val[0] - args.seq_length_x, :, 0] 
+    x_train = data[:idx_val[0] - args.seq_length_x, :, 0]
     scaler = StandardScaler(mean=x_train.mean(), std=x_train.std())
     data[..., 0] = scaler.transform(data[..., 0])
 
@@ -81,8 +81,10 @@ def generate_train_val_test(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='ca', help='dataset name')
-    parser.add_argument('--years', type=str, default='2019', help='if use data from multiple years, please use underline to separate them, e.g., 2018_2019')
+    # parser.add_argument('--dataset', type=str, default='ca', help='dataset name')
+    parser.add_argument('--dataset', type=str, default='weather', help='dataset name')
+    # parser.add_argument('--years', type=str, default='2019', help='if use data from multiple years, please use underline to separate them, e.g., 2018_2019')
+    parser.add_argument('--years', type=str, default='2014', help='if use data from multiple years, please use underline to separate them, e.g., 2018_2019')
     parser.add_argument('--seq_length_x', type=int, default=12, help='sequence Length')
     parser.add_argument('--seq_length_y', type=int, default=12, help='sequence Length')
     parser.add_argument('--tod', type=int, default=1, help='time of day')
